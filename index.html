@@ -10,7 +10,6 @@
     <meta name="apple-mobile-web-app-title" content="Loan Planner">
     <meta name="theme-color" content="#1a56db">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231a56db'/><text x='50' y='62' font-size='50' text-anchor='middle' fill='white'>$</text></svg>">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -52,7 +51,7 @@
         .cell-extra { background: #fef3c7; }
         .cell-zero { color: #d1d5db; }
         .scroll-table { max-height: 600px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
-        .chart-wrap { position: relative; height: 360px; }
+
         .milestone { padding: 16px; border-radius: 8px; border-left: 4px solid var(--primary); }
         .milestone.final { background: #d1fae5; border-color: var(--success); }
         .milestone:not(.final) { background: var(--bg); }
@@ -114,11 +113,6 @@
     </div>
 
     <div class="card" id="loans-card"></div>
-
-    <div class="card">
-        <h2>Payoff Timeline</h2>
-        <div class="chart-wrap"><canvas id="payoffChart"></canvas></div>
-    </div>
 
     <div class="card" id="milestones-card"></div>
     <div class="card" id="servicer-card"></div>
@@ -339,8 +333,6 @@ const fmtS = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric'
 // ===========================================================
 // RENDER
 // ===========================================================
-let chart = null;
-
 function render() {
     const { inc, loans, periods } = simulate();
     const totalInt = loans.reduce((s, l) => s + l.intTotal, 0);
@@ -437,13 +429,14 @@ function render() {
         </div>
         <p style="margin-bottom:12px;font-size:13px;color:var(--muted)">Click the checkbox when you&rsquo;ve made that pay period&rsquo;s payment. Your progress is saved automatically in your browser.</p>
         <div class="scroll-table" style="max-height:420px"><table><thead><tr>
-        <th style="width:40px">Paid</th><th>#</th><th>Date</th><th>Pay to MOHELA</th><th>Pay to Aidvantage</th><th>Pay to Family</th><th>Total</th><th>Balance</th></tr></thead><tbody>`;
+        <th style="width:40px">Paid</th><th>#</th><th>Date</th><th>Pay to MOHELA</th><th>Pay to Aidvantage</th><th>Pay to Mom</th><th>Pay to Dad</th><th>Total</th><th>Balance</th></tr></thead><tbody>`;
     for (const p of periods) {
-        let moh = 0, aid = 0, fam = 0;
+        let moh = 0, aid = 0, mom = 0, dad = 0;
         for (const l of loans) {
             if (l.servicer === 'MOHELA') moh += p.pay[l.id].amt;
             else if (l.servicer === 'Aidvantage') aid += p.pay[l.id].amt;
-            else if (l.servicer === 'Family') fam += p.pay[l.id].amt;
+            else if (l.id === 8) mom += p.pay[l.id].amt;
+            else if (l.id === 9) dad += p.pay[l.id].amt;
         }
         const checked = paidData[p.n] ? 'checked' : '';
         const rowCls = paidData[p.n] ? 'row-paid' : '';
@@ -452,7 +445,8 @@ function render() {
             <td style="text-align:center">${p.n}</td><td style="white-space:nowrap" class="tracker-label">${fmtS(p.date)}</td>
             <td>${moh > 0.01 ? $(moh) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
             <td>${aid > 0.01 ? $(aid) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
-            <td>${fam > 0.01 ? $(fam) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
+            <td>${mom > 0.01 ? $(mom) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
+            <td>${dad > 0.01 ? $(dad) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
             <td style="font-weight:600">${$(p.totalPay)}</td>
             <td style="font-weight:600">${$(p.balAfter)}</td></tr>`;
     }
@@ -488,60 +482,6 @@ function render() {
     dh += `</tbody></table></div>`;
     document.getElementById('schedule-card').innerHTML = dh;
 
-    // --- Chart ---
-    renderChart(loans, periods);
-}
-
-function renderChart(loans, periods) {
-    const ctx = document.getElementById('payoffChart');
-    if (!ctx) return;
-    if (chart) chart.destroy();
-
-    const colors = ['#dc2626','#ea580c','#d97706','#65a30d','#059669','#0891b2','#2563eb','#7c3aed','#db2777'];
-    const labels = ['Start', ...periods.map(p => fmtS(p.date))];
-
-    const datasets = loans.map((l, i) => ({
-        label: `${l.servicer} ${l.name} (${l.rate}%)`,
-        data: l.hist,
-        borderColor: colors[i],
-        backgroundColor: colors[i] + '18',
-        fill: true,
-        tension: 0.3,
-        pointRadius: 2,
-    }));
-
-    // Total line
-    const totalHist = [loans.reduce((s, l) => s + l.bal, 0)];
-    for (let i = 0; i < periods.length; i++) totalHist.push(loans.reduce((s, l) => s + l.hist[i + 1], 0));
-    datasets.unshift({
-        label: 'Total Balance',
-        data: totalHist,
-        borderColor: '#111827',
-        borderWidth: 3,
-        borderDash: [6, 3],
-        fill: false,
-        tension: 0.3,
-        pointRadius: 3,
-    });
-
-    try {
-        chart = new Chart(ctx, {
-            type: 'line',
-            data: { labels, datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: {
-                    legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
-                    tooltip: { callbacks: { label: c => c.dataset.label + ': ' + $(c.parsed.y) } },
-                },
-                scales: {
-                    y: { beginAtZero: true, ticks: { callback: v => '$' + (v / 1000).toFixed(0) + 'k' } },
-                },
-            },
-        });
-    } catch (e) { /* Chart.js not loaded */ }
 }
 
 function reCalc() {
