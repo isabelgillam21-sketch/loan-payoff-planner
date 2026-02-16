@@ -165,6 +165,8 @@ const LOANS = [
     { id: 5, name: 'Direct Subsidized',   grp: '6.53%', servicer: 'MOHELA',     bal: 5266.67,  rate: 6.530 },
     { id: 6, name: 'Direct Unsubsidized', grp: '6.53%', servicer: 'MOHELA',     bal: 1392.04,  rate: 6.530 },
     { id: 7, name: 'Parent PLUS',         grp: '8.05%', servicer: 'Aidvantage', bal: 22207.32, rate: 8.050 },
+    { id: 8, name: 'Family Loan (Mom)',   grp: '0.00%', servicer: 'Family',     bal: 20000.00, rate: 0.000 },
+    { id: 9, name: 'Family Loan (Dad)',   grp: '0.00%', servicer: 'Family',     bal: 15000.00, rate: 0.000 },
 ];
 
 // Standard 10-year minimum from current balance (conservative estimate)
@@ -173,7 +175,11 @@ function calcMin(balance, annualRate) {
     if (r === 0) return balance / n;
     return balance * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
 }
-LOANS.forEach(l => { l.minMo = Math.ceil(calcMin(l.bal, l.rate) * 100) / 100; });
+LOANS.forEach(l => {
+    // Family loans: no minimum, deferred until all other loans paid off
+    if (l.servicer === 'Family') l.minMo = 0;
+    else l.minMo = Math.ceil(calcMin(l.bal, l.rate) * 100) / 100;
+});
 
 // ===========================================================
 // TAX HELPERS
@@ -431,10 +437,14 @@ function render() {
         </div>
         <p style="margin-bottom:12px;font-size:13px;color:var(--muted)">Click the checkbox when you&rsquo;ve made that pay period&rsquo;s payment. Your progress is saved automatically in your browser.</p>
         <div class="scroll-table" style="max-height:420px"><table><thead><tr>
-        <th style="width:40px">Paid</th><th>#</th><th>Date</th><th>Pay to MOHELA</th><th>Pay to Aidvantage</th><th>Total</th><th>Balance</th></tr></thead><tbody>`;
+        <th style="width:40px">Paid</th><th>#</th><th>Date</th><th>Pay to MOHELA</th><th>Pay to Aidvantage</th><th>Pay to Family</th><th>Total</th><th>Balance</th></tr></thead><tbody>`;
     for (const p of periods) {
-        let moh = 0, aid = 0;
-        for (const l of loans) { if (l.servicer === 'MOHELA') moh += p.pay[l.id].amt; else aid += p.pay[l.id].amt; }
+        let moh = 0, aid = 0, fam = 0;
+        for (const l of loans) {
+            if (l.servicer === 'MOHELA') moh += p.pay[l.id].amt;
+            else if (l.servicer === 'Aidvantage') aid += p.pay[l.id].amt;
+            else if (l.servicer === 'Family') fam += p.pay[l.id].amt;
+        }
         const checked = paidData[p.n] ? 'checked' : '';
         const rowCls = paidData[p.n] ? 'row-paid' : '';
         sh += `<tr class="${rowCls}" data-svc-period="${p.n}">
@@ -442,6 +452,7 @@ function render() {
             <td style="text-align:center">${p.n}</td><td style="white-space:nowrap" class="tracker-label">${fmtS(p.date)}</td>
             <td>${moh > 0.01 ? $(moh) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
             <td>${aid > 0.01 ? $(aid) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
+            <td>${fam > 0.01 ? $(fam) : '<span style="color:#d1d5db">&mdash;</span>'}</td>
             <td style="font-weight:600">${$(p.totalPay)}</td>
             <td style="font-weight:600">${$(p.balAfter)}</td></tr>`;
     }
@@ -486,7 +497,7 @@ function renderChart(loans, periods) {
     if (!ctx) return;
     if (chart) chart.destroy();
 
-    const colors = ['#dc2626','#ea580c','#d97706','#65a30d','#059669','#0891b2','#2563eb'];
+    const colors = ['#dc2626','#ea580c','#d97706','#65a30d','#059669','#0891b2','#2563eb','#7c3aed','#db2777'];
     const labels = ['Start', ...periods.map(p => fmtS(p.date))];
 
     const datasets = loans.map((l, i) => ({
